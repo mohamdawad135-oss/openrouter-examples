@@ -154,7 +154,7 @@ async function main() {
     {
       role: 'assistant',
       content: firstResponse.choices[0].message.content,
-      annotations: annotations, // <-- KEY: Include annotations from first response
+      annotations, // <-- KEY: Include annotations from first response
     },
     {
       role: 'user',
@@ -217,7 +217,9 @@ async function main() {
   console.log(`  WITHOUT annotations: $${costWithoutAnnotations.toFixed(6)}`);
 
   const savings = costWithoutAnnotations - costWithAnnotations;
-  const savingsPercent = ((savings / costWithoutAnnotations) * 100).toFixed(1);
+  const savingsPercent = costWithoutAnnotations > 0
+    ? ((savings / costWithoutAnnotations) * 100).toFixed(1)
+    : '0.0';
 
   console.log();
   console.log(`  SAVINGS: $${savings.toFixed(6)} (${savingsPercent}%)`);
