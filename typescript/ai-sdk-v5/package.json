@@ -9,10 +9,10 @@
   },
   "dependencies": {
     "@openrouter-examples/shared": "workspace:*",
-    "@openrouter/ai-sdk-provider": "1.4.0",
-    "ai": "^5.0.92"
+    "@openrouter/ai-sdk-provider": "1.5.0",
+    "ai": "5.0.108"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "1.3.4"
   }
 }
