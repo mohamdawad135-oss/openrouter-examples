@@ -4,3 +4,4 @@ typescript/*/node_modules/
 typescript/bun.lock
 *.log
 .DS_Store
+.env
