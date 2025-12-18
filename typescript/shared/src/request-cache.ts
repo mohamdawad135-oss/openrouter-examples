@@ -14,11 +14,18 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const CACHE_DIR = join(__dirname, '../../../.cache/requests');
 
+export interface CachedResponseBody {
+  /** Parsed JSON if body was valid JSON */
+  json?: unknown;
+  /** Raw text if body was not valid JSON */
+  text?: string;
+}
+
 export interface CachedResponse {
   status: number;
   statusText: string;
   headers: Record<string, string>;
-  body: string;
+  body: CachedResponseBody;
   timestamp: number;
 }
 
@@ -128,7 +135,11 @@ export function createCachedFetch(
       const age = Date.now() - cached.response.timestamp;
       if (age < ttlMs) {
         console.log(`[CACHE HIT] ${url} (age: ${Math.round(age / 1000)}s)`);
-        return new Response(cached.response.body, {
+        // Reconstruct body from cached format
+        const bodyText = cached.response.body.json !== undefined
+          ? JSON.stringify(cached.response.body.json)
+          : cached.response.body.text ?? '';
+        return new Response(bodyText, {
           status: cached.response.status,
           statusText: cached.response.statusText,
           headers: cached.response.headers,
@@ -143,7 +154,15 @@ export function createCachedFetch(
 
     // Clone response to read body without consuming it
     const clone = response.clone();
-    const body = await clone.text();
+    const bodyText = await clone.text();
+
+    // Try to parse as JSON, fall back to text
+    let body: CachedResponseBody;
+    try {
+      body = { json: JSON.parse(bodyText) };
+    } catch {
+      body = { text: bodyText };
+    }
 
     // Cache the response
     const headers: Record<string, string> = {};
@@ -160,7 +179,7 @@ export function createCachedFetch(
     });
 
     // Return a new response with the same body
-    return new Response(body, {
+    return new Response(bodyText, {
       status: response.status,
       statusText: response.statusText,
       headers: response.headers,
