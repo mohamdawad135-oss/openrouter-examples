@@ -22,9 +22,17 @@ import { readPdfAsDataUrl, readExpectedCode } from '@openrouter-examples/shared/
 import { createCachedFetch } from '@openrouter-examples/shared/request-cache';
 
 const MODELS_TO_TEST = [
+  // OpenAI models - testing various variants
   'openai/gpt-4o-mini',
+  'openai/gpt-4o',
+  'openai/gpt-4-turbo',
+  // Anthropic
   'anthropic/claude-3-5-sonnet',
+  // Google
   'google/gemini-2.0-flash-001',
+  // Other providers for comparison
+  'x-ai/grok-3-mini-beta',
+  'mistralai/pixtral-large-2411',
 ] as const;
 
 interface TestResult {
