@@ -5,3 +5,4 @@ typescript/bun.lock
 *.log
 .DS_Store
 .env
+typescript/.env.local
