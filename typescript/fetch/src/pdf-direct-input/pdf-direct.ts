@@ -9,9 +9,13 @@
  * 2. "image_url" type - OpenAI native format (works for PDFs too)
  *
  * Expected verification code: SMALL-7X9Q2
+ *
+ * Caching: Responses are cached to .cache/requests/ to avoid hitting the API
+ * repeatedly during development. Delete the cache to force fresh requests.
  */
 
 import { readPdfAsDataUrl, readExpectedCode } from '@openrouter-examples/shared/fixtures';
+import { createCachedFetch } from '@openrouter-examples/shared/request-cache';
 import type { ChatCompletionResponse } from '@openrouter-examples/shared/types';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
@@ -26,19 +30,18 @@ type MessageShape = 'file' | 'image_url';
 
 const PROMPT = 'What is the verification code in this PDF? Reply with just the code.';
 
+// Use cached fetch to avoid hitting API repeatedly
+const cachedFetch = createCachedFetch({ enabled: true, ttlMs: 60 * 60 * 1000 });
+
 /** Truncate string to max length */
 function truncate(str: string, maxLen = 200): string {
-  if (str.length <= maxLen) {
-    return str;
-  }
-  return str.slice(0, maxLen) + '...';
+  return str.length <= maxLen ? str : str.slice(0, maxLen) + '...';
 }
 
 /** Extract error message from OpenRouter error response */
 function extractErrorMessage(errorJson: string): string {
   try {
     const parsed = JSON.parse(errorJson);
-    // Try to get the raw error from provider
     if (parsed?.error?.metadata?.raw) {
       const rawParsed = JSON.parse(parsed.error.metadata.raw);
       return rawParsed?.error?.message ?? parsed.error.message;
@@ -51,23 +54,13 @@ function extractErrorMessage(errorJson: string): string {
 
 /**
  * Extract verification code from response text.
- * Handles various formats: "SMALL-7X9Q2", "SMALL - 7X9Q2", "**SMALL-7X9Q2**", etc.
  */
 function extractCode(text: string): string | null {
-  // First normalize: remove markdown, extra spaces
-  const normalized = text
-    .replace(/\*+/g, '') // Remove markdown bold/italic
-    .replace(/\s+/g, ' ') // Normalize whitespace
-    .trim();
-
-  // Match pattern: WORD - ALPHANUMERIC (with optional spaces around dash)
+  const normalized = text.replace(/\*+/g, '').replace(/\s+/g, ' ').trim();
   const match = normalized.match(/([A-Z]+)\s*[-–—]\s*([A-Z0-9]{5})/i);
   if (match) {
-    // Return normalized form without spaces
     return `${match[1].toUpperCase()}-${match[2].toUpperCase()}`;
   }
-
-  // Fallback: try strict pattern
   const strictMatch = text.match(/[A-Z]+-[A-Z0-9]{5}/);
   return strictMatch ? strictMatch[0] : null;
 }
@@ -84,27 +77,14 @@ interface TestResult {
 
 function buildMessageContent(shape: MessageShape, pdfDataUrl: string) {
   if (shape === 'file') {
-    // OpenRouter/Anthropic native format
     return [
       { type: 'text', text: PROMPT },
-      {
-        type: 'file',
-        file: {
-          filename: 'small.pdf',
-          file_data: pdfDataUrl,
-        },
-      },
+      { type: 'file', file: { filename: 'small.pdf', file_data: pdfDataUrl } },
     ];
   }
-  // OpenAI native format (image_url also works for PDFs)
   return [
     { type: 'text', text: PROMPT },
-    {
-      type: 'image_url',
-      image_url: {
-        url: pdfDataUrl,
-      },
-    },
+    { type: 'image_url', image_url: { url: pdfDataUrl } },
   ];
 }
 
@@ -127,16 +107,11 @@ async function testPdfWithModel(
 
   const requestBody = {
     model,
-    messages: [
-      {
-        role: 'user',
-        content: buildMessageContent(shape, pdfDataUrl),
-      },
-    ],
+    messages: [{ role: 'user', content: buildMessageContent(shape, pdfDataUrl) }],
   };
 
   try {
-    const response = await fetch(OPENROUTER_API_URL, {
+    const response = await cachedFetch(OPENROUTER_API_URL, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
@@ -187,7 +162,6 @@ async function testPdfWithModel(
 async function main() {
   console.log('=== Example 01: Direct PDF Input via Raw OpenRouter API ===\n');
 
-  // Load PDF and expected code
   console.log('Loading PDF fixture (small.pdf)...');
   const pdfDataUrl = await readPdfAsDataUrl('small');
   const expectedCode = await readExpectedCode('small');
@@ -196,7 +170,6 @@ async function main() {
   const shapes: MessageShape[] = ['file', 'image_url'];
   const results: TestResult[] = [];
 
-  // Test each model with each message shape
   for (const model of MODELS_TO_TEST) {
     for (const shape of shapes) {
       console.log(`Testing: ${model} with "${shape}" shape...`);
@@ -211,12 +184,12 @@ async function main() {
   console.log('-------------------------------|-----------|---------|------------|------');
 
   for (const r of results) {
-    const modelPadded = r.model.padEnd(30);
-    const shapePadded = r.shape.padEnd(9);
+    const modelPad = r.model.padEnd(30);
+    const shapePad = r.shape.padEnd(9);
     const status = r.success ? 'SUCCESS' : 'FAIL   ';
     const code = (r.extractedCode ?? 'N/A').slice(0, 10).padEnd(10);
     const match = r.matches ? 'YES' : 'NO ';
-    console.log(`${modelPadded} | ${shapePadded} | ${status} | ${code} | ${match}`);
+    console.log(`${modelPad} | ${shapePad} | ${status} | ${code} | ${match}`);
   }
 
   // Summary by model
@@ -228,8 +201,6 @@ async function main() {
     const imageUrlResult = modelResults.find((r) => r.shape === 'image_url');
 
     console.log(`${model}:`);
-
-    // File shape result
     const fileStatus = fileResult?.matches ? 'WORKS' : 'FAILS';
     const fileDetail = fileResult?.error
       ? truncate(fileResult.error, 80)
@@ -238,23 +209,19 @@ async function main() {
         : '';
     console.log(`  - "file" shape:      ${fileStatus} ${fileDetail ? `(${fileDetail})` : ''}`);
 
-    // Image_url shape result
     const imageUrlStatus = imageUrlResult?.matches ? 'WORKS' : 'FAILS';
     const imageUrlDetail = imageUrlResult?.error
       ? truncate(imageUrlResult.error, 80)
       : imageUrlResult?.success && !imageUrlResult?.matches
         ? `Response: "${truncate(imageUrlResult.rawResponse ?? '', 80)}"`
         : '';
-    console.log(
-      `  - "image_url" shape: ${imageUrlStatus} ${imageUrlDetail ? `(${imageUrlDetail})` : ''}`,
-    );
+    console.log(`  - "image_url" shape: ${imageUrlStatus} ${imageUrlDetail ? `(${imageUrlDetail})` : ''}`);
     console.log();
   }
 
   // Key findings
   console.log('=== Key Findings ===\n');
 
-  // Analyze "file" shape support
   const fileShapeWorks = results.filter((r) => r.shape === 'file' && r.matches);
   const imageUrlShapeWorks = results.filter((r) => r.shape === 'image_url' && r.matches);
 
@@ -277,12 +244,9 @@ async function main() {
   }
 
   console.log('\nConclusion:');
-  console.log(
-    '  The "file" shape is the universal format for PDF input across OpenRouter models.',
-  );
+  console.log('  The "file" shape is the universal format for PDF input across OpenRouter models.');
   console.log('  The "image_url" shape only works with Google models for PDFs.');
 
-  // Exit code: success if OpenAI works with any shape
   const anyOpenAIWorks = results.some((r) => r.model === 'openai/gpt-4o-mini' && r.matches);
   if (!anyOpenAIWorks) {
     console.log('\n⚠️ OpenAI PDF support: NOT WORKING with any tested shape');

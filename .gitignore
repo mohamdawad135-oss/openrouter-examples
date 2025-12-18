@@ -6,3 +6,4 @@ typescript/bun.lock
 .DS_Store
 .env
 typescript/.env.local
+.cache/
